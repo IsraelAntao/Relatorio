@@ -1,0 +1,147 @@
+# Este trecho do código mostra a lógica para o cálculo de risco de evasão (RF03) e a geração de alertas (RF04).
+
+# --- RF03: Cálculo de Indicadores de Risco ---
+
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+import joblib # Para salvar e carregar o modelo treinado
+
+from database import db_session
+from models import Student, AcademicData, User, Alert
+
+CAMINHO_MODELO = 'modelo_risco_evasao.pkl'
+
+def treinar_modelo_evasao():
+   
+    print("Treinando modelo de risco de evasão...")
+    # Dados fictícios para o treinamento
+    dados = {
+        'nota_media': [7.5, 5.0, 8.0, 6.5, 4.0, 9.0, 7.0, 5.5, 6.0, 8.5],
+        'frequencia_media': [90, 60, 95, 80, 50, 99, 85, 70, 75, 92],
+        'reprovacoes_contagem': [0, 2, 0, 1, 3, 0, 0, 1, 2, 0],
+        'evadiu': [0, 1, 0, 0, 1, 0, 0, 1, 1, 0] # 1 = evadiu, 0 = não evadiu
+    }
+    df = pd.DataFrame(dados)
+
+    X = df[['nota_media', 'frequencia_media', 'reprovacoes_contagem']]
+    y = df['evadiu']
+
+    X_treino, _, y_treino, _ = train_test_split(X, y, test_size=0.3, random_state=42)
+
+    modelo = RandomForestClassifier(n_estimators=100, random_state=42)
+    modelo.fit(X_treino, y_treino)
+
+    # Salva o modelo treinado para uso posterior
+    joblib.dump(modelo, CAMINHO_MODELO)
+    print(f"Modelo salvo em: {CAMINHO_MODELO}")
+    return modelo
+
+def carregar_modelo_evasao():
+   
+    try:
+        modelo = joblib.load(CAMINHO_MODELO)
+        print("Modelo de risco de evasão carregado com sucesso.")
+        return modelo
+    except FileNotFoundError:
+        print("Modelo não encontrado. Treinando um novo modelo...")
+        return treinar_modelo_evasao()
+
+modelo_evasao = carregar_modelo_evasao()
+
+def coletar_caracteristicas_estudante(id_estudante):
+   
+    dados_academicos = db_session.query(AcademicData).filter_by(student_id=id_estudante).all()
+
+    if not dados_academicos:
+       
+        return pd.DataFrame([[0.0, 0.0, 0]], columns=['nota_media', 'frequencia_media', 'reprovacoes_contagem'])
+
+    notas = [da.grade for da in dados_academicos if da.grade is not None]
+    frequencias = [da.attendance_percentage for da in dados_academicos if da.attendance_percentage is not None]
+    
+    reprovacoes_contagem = sum(1 for da in dados_academicos if da.status == 'Reprovado')
+
+    nota_media = sum(notas) / len(notas) if notas else 0.0
+    frequencia_media = sum(frequencias) / len(frequencias) if frequencias else 0.0
+
+    caracteristicas = pd.DataFrame([[nota_media, frequencia_media, reprovacoes_contagem]], 
+                                   columns=['nota_media', 'frequencia_media', 'reprovacoes_contagem'])
+    return caracteristicas
+
+def calcular_risco_evasao(id_estudante):
+    """
+    RF03 - Calcula o indicador de risco de evasão para um estudante.
+    Args:
+        id_estudante (int): ID do estudante.
+    Returns:
+        float or None: Probabilidade de evasão (entre 0 e 1), ou None se não houver dados.
+    """
+    caracteristicas = coletar_caracteristicas_estudante(id_estudante)
+    if caracteristicas is None or caracteristicas.empty:
+        print(f"Não há dados suficientes para calcular o risco do estudante {id_estudante}.")
+        return None
+    
+    # O modelo retorna as probabilidades para cada classe (não evadiu, evadiu)
+    # A probabilidade de evasão é a segunda coluna (índice 1)
+    probabilidade_risco = modelo_evasao.predict_proba(caracteristicas)[:, 1][0]
+    
+    estudante = db_session.query(Student).filter_by(id=id_estudante).first()
+    if estudante:
+        estudante.evasion_risk = probabilidade_risco
+        db_session.commit()
+    
+    return probabilidade_risco
+
+# --- RF04: Geração de Alertas e Notificações ---
+
+def gerar_alertas_risco(limite_risco=0.7):
+    """
+    RF04 - Gera e envia alertas para estudantes e equipe de apoio com base no risco de evasão.
+    Args:
+        limite_risco (float): Limite de risco para disparar um alerta.
+    """
+    estudantes_em_risco = db_session.query(Student).filter(Student.evasion_risk >= limite_risco).all()
+    
+    if not estudantes_em_risco:
+        print("Nenhum estudante com risco de evasão acima do limite.")
+        return
+
+    perfis_para_alertar = ['estudante', 'professor', 'psicopedagogo', 'psicologo', 'coordenador']
+    
+    for estudante in estudantes_em_risco:
+        mensagem_alerta = f"ALERTA: O estudante {estudante.name} (matrícula: {estudante.registration_number}) apresenta um risco de evasão elevado ({estudante.evasion_risk:.2f})."
+      
+        alertar_usuario(estudante.user_id, mensagem_alerta, 'estudante')
+        
+        usuarios_da_equipe = db_session.query(User).filter(User.role.in_([p for p in perfis_para_alertar if p != 'estudante'])).all()
+        for usuario in usuarios_da_equipe:
+            alertar_usuario(usuario.id, mensagem_alerta, usuario.role)
+
+def alertar_usuario(id_usuario, mensagem, tipo_alvo):
+    """
+    RF04 - Cria um alerta no banco de dados para um usuário específico.
+    Simula o envio de diferentes tipos de notificação.
+    Args:
+        id_usuario (int): ID do usuário a ser alertado.
+        mensagem (str): Conteúdo da mensagem do alerta.
+        tipo_alvo (str): Perfil do usuário (ex: 'estudante', 'professor').
+    """
+    print(f"Criando alerta para o perfil '{tipo_alvo}' (ID: {id_usuario}): {mensagem}")
+    
+    novo_alerta = Alert(
+        user_id=id_usuario,
+        message=mensagem,
+        alert_type='sistema',
+        status='pendente'
+    )
+    db_session.add(novo_alerta)
+    db_session.commit()
+    
+    # Simula o envio de e-mail/SMS para a equipe de apoio
+    if tipo_alvo in ['coordenador', 'psicopedagogo', 'psicologo']:
+        usuario = db_session.get(User, id_usuario)
+        if usuario and usuario.email:
+            print(f"Simulando envio de e-mail para {usuario.email}.")
+        if usuario and usuario.phone:
+            print(f"Simulando envio de SMS para {usuario.phone}.")
