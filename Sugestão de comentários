@@ -1,0 +1,41 @@
+Acho interessante adicionar os seguintes comentários ao código, para melhor clareza no entendimento das suas funcionalidades
+
+ """
+    RF01 - Cria um novo usuário com um perfil específico.
+    Args:
+        nome_usuario (str): Nome de usuário único.
+        senha (str): Senha do usuário.
+        perfil (str): Perfil do usuário ('estudante', 'professor', 'coordenador', 'psicopedagogo', 'administrador', 'psicologo').
+        email (str, optional): E-mail do usuário.
+        telefone (str, optional): Telefone do usuário.
+        dados_estudante (dict, optional): Dicionário com dados do estudante se o perfil for 'estudante'.
+                                      Ex: {'numero_matricula': '12345', 'nome': 'Fulano de Tal', 'curso': 'Eng. Software'}
+    Returns:
+        User: O objeto User recém-criado.
+    Raises:
+        ValueError: Se a função for chamada com um perfil inválido ou dados ausentes.
+        IntegrityError: Se o nome_usuario já existir.
+    """
+"""
+    RF01 - Autentica um usuário.
+    Args:
+        nome_usuario (str): Nome de usuário.
+        senha (str): Senha.
+    Returns:
+        User or None: O objeto User se a autenticação for bem-sucedida, caso contrário None.
+    """
+ """
+    RF02 - Simula a importação de dados acadêmicos de um arquivo CSV, representando o Q-Acadêmico.
+    Na prática, esta função se conectaria diretamente ao banco de dados do Q-Acadêmico ou consumiria uma API.
+    
+    Args:
+        caminho_arquivo (str): Caminho para o arquivo CSV contendo os dados.
+    """
+  """
+    RF02 - Simula a sincronização automatizada de dados com o Sistema Q-Acadêmico.
+    Esta função seria executada periodicamente (ex: via cron job).
+    """
+ # Aqui, você colocaria a lógica para buscar dados atualizados
+    # do Q-Acadêmico e chamar a função de importação.
+    # Exemplo de chamada:
+    # importar_dados_q_academico('caminho/para/arquivo_atualizado.csv')
