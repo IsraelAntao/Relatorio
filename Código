@@ -1,0 +1,96 @@
+# Este trecho do código mostra a lógica para as funcionalidades RF01 e RF02 do projeto.
+# Ele foi dividido em duas partes principais: gestão de usuários e sincronização de dados.
+
+# --- RF01: Cadastro e Gestão de Usuários ---
+
+from werkzeug.security import generate_password_hash, check_password_hash
+from database import db_session
+from models import User, Student
+from sqlalchemy.exc import IntegrityError
+
+def criar_usuario(nome_usuario, senha, perfil, email=None, telefone=None, dados_estudante=None):
+  
+    perfis_validos = ['estudante', 'professor', 'coordenador', 'psicopedagogo', 'administrador', 'psicologo']
+    if perfil not in perfis_validos:
+        raise ValueError(f"Perfil de usuário inválido. Escolha entre: {', '.join(perfis_validos)}")
+
+    senha_hash = generate_password_hash(senha)
+    novo_usuario = User(username=nome_usuario, password_hash=senha_hash, role=perfil, email=email, phone=telefone)
+    
+    try:
+        db_session.add(novo_usuario)
+        db_session.flush()
+
+        if perfil == 'estudante':
+            if not dados_estudante or 'numero_matricula' not in dados_estudante or 'nome' not in dados_estudante or 'curso' not in dados_estudante:
+                raise ValueError("Dados do estudante incompletos para o perfil 'estudante'.")
+            
+            novo_estudante = Student(
+                user_id=novo_usuario.id,
+                registration_number=dados_estudante['numero_matricula'],
+                name=dados_estudante['nome'],
+                course=dados_estudante['curso'],
+                current_semester=dados_estudante.get('semestre_atual')
+            )
+            db_session.add(novo_estudante)
+        
+        db_session.commit()
+        return novo_usuario
+    except IntegrityError:
+        db_session.rollback()
+        raise IntegrityError("Nome de usuário ou número de matrícula já existe.", None, None)
+    except Exception as e:
+        db_session.rollback()
+        raise e
+
+def autenticar_usuario(nome_usuario, senha):
+    
+    usuario = db_session.query(User).filter_by(username=nome_usuario).first()
+    if usuario and check_password_hash(usuario.password_hash, senha):
+        return usuario
+    return None
+
+# --- RF02: Importação e Sincronização de Dados Acadêmicos ---
+
+import csv
+from datetime import datetime
+from models import AcademicData, Student
+
+def importar_dados_q_academico(caminho_arquivo):
+   
+    print(f"Iniciando importação de dados do Q-Acadêmico de: {caminho_arquivo}")
+    try:
+        with open(caminho_arquivo, mode='r', encoding='utf-8') as arquivo:
+            leitor = csv.DictReader(arquivo)
+            for linha in leitor:
+                estudante = db_session.query(Student).filter_by(registration_number=linha['numero_matricula']).first()
+                if not estudante:
+                    # Em um sistema real, o estudante já deveria estar cadastrado.
+                    # Aqui, simulamos a criação para que o exemplo funcione.
+                    print(f"Aviso: Estudante com matrícula {linha['numero_matricula']} não encontrado. Ignorando linha.")
+                    continue
+
+                dados_academicos = AcademicData(
+                    student_id=estudante.id,
+                    semester=linha['semestre'],
+                    discipline=linha['disciplina'],
+                    grade=float(linha['nota']) if linha.get('nota') else None,
+                    attendance_percentage=float(linha['percentual_frequencia']) if linha.get('percentual_frequencia') else None,
+                    status=linha['status'],
+                    data_source='Q-Academico',
+                    imported_at=datetime.now()
+                )
+                db_session.add(dados_academicos)
+            db_session.commit()
+            print("Importação de dados do Q-Acadêmico concluída com sucesso.")
+    except FileNotFoundError:
+        print(f"Erro: Arquivo {caminho_arquivo} não encontrado.")
+    except Exception as e:
+        db_session.rollback()
+        print(f"Erro durante a importação de dados: {e}")
+
+def sincronizar_dados_q_academico():
+  
+    print("Iniciando sincronização automatizada de dados com o Q-Acadêmico...")
+   
+    print("Sincronização com o Q-Academico concluída (simulada).")
